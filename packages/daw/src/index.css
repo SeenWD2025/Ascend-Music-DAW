@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* DAW-specific base styles */
+@layer base {
+  * {
+    @apply border-daw-border-primary;
+  }
+
+  body {
+    @apply bg-daw-bg-primary text-daw-text-primary;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  /* Custom scrollbar for DAW interface */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-daw-bg-tertiary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-daw-border-primary rounded;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-daw-text-muted;
+  }
+}
+
+@layer components {
+  /* DAW-specific component utilities */
+  .daw-panel {
+    @apply bg-daw-bg-secondary border border-daw-border-secondary rounded-lg;
+  }
+
+  .daw-button {
+    @apply px-4 py-2 bg-daw-accent-primary text-white rounded-md 
+           hover:bg-daw-accent-secondary transition-colors duration-150
+           focus:outline-none focus:ring-2 focus:ring-daw-accent-primary focus:ring-offset-2 
+           focus:ring-offset-daw-bg-primary;
+  }
+
+  .daw-input {
+    @apply bg-daw-bg-tertiary border border-daw-border-primary rounded-md px-3 py-2
+           text-daw-text-primary placeholder-daw-text-muted
+           focus:outline-none focus:ring-2 focus:ring-daw-accent-primary focus:border-transparent;
+  }
+}
