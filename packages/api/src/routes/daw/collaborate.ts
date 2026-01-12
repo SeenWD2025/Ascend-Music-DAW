@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
+import * as Sentry from '@sentry/node';
 import { createClient } from '@supabase/supabase-js';
 import {
   validateDAWEvent,
@@ -19,6 +20,15 @@ import {
   sendError,
   sendPong,
 } from '../../services/daw/realtime.service.js';
+import {
+  presenceService,
+  type UserPresence,
+  type PresenceUpdatePayload,
+} from '../../services/daw/presence.service.js';
+import {
+  lockService,
+  type LockResourceType,
+} from '../../services/daw/lock.service.js';
 
 // ============================================================================
 // Types
@@ -38,6 +48,8 @@ interface AuthenticatedConnection {
   projectId: string;
   clientId: string;
   canEdit: boolean;
+  displayName: string;
+  avatarUrl?: string;
 }
 
 // ============================================================================
@@ -102,6 +114,8 @@ async function authenticateConnection(
     // Check if owner or collaborator
     const isOwner = project.owner_id === user.id;
     let canEdit = isOwner;
+    let displayName = user.user_metadata?.display_name || user.email || 'Unknown User';
+    const avatarUrl = user.user_metadata?.avatar_url;
 
     if (!isOwner) {
       // Check collaborator status
@@ -132,6 +146,8 @@ async function authenticateConnection(
       projectId,
       clientId: clientId || randomUUID(),
       canEdit,
+      displayName,
+      avatarUrl,
     };
   } catch (err) {
     // TODO: Sentry.captureException(err, {
@@ -175,19 +191,26 @@ function handleMessage(
         handleEventMessage(socketId, connection, data);
         break;
 
+      case 'presence':
+        handlePresenceMessage(socketId, connection, data);
+        break;
+
+      case 'lock':
+        handleLockMessage(socketId, connection, data);
+        break;
+
       case 'sync':
-        // TODO: Implement state sync in Sprint 1
-        sendError(socketId, 'NOT_IMPLEMENTED', 'State sync not yet implemented');
+        handleSyncMessage(socketId, connection);
         break;
 
       default:
         sendError(socketId, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type: ${type}`);
     }
   } catch (err) {
-    // TODO: Sentry.captureException(err, {
-    //   tags: { component: 'websocket_message_handler' },
-    //   extra: { socketId },
-    // });
+    Sentry.captureException(err, {
+      tags: { component: 'websocket_message_handler' },
+      extra: { socketId },
+    });
     console.error('[CollaborateRoute] Message parse error:', err);
     sendError(socketId, 'PARSE_ERROR', 'Failed to parse message');
   }
@@ -243,6 +266,237 @@ function handleEventMessage(
 
   // Send acknowledgment
   sendAck(socketId, event.event_id, result.seq!);
+}
+
+/**
+ * Handles presence-related messages.
+ */
+function handlePresenceMessage(
+  socketId: string,
+  connection: AuthenticatedConnection,
+  data: unknown
+): void {
+  if (!data || typeof data !== 'object') {
+    sendError(socketId, 'INVALID_PAYLOAD', 'Invalid presence payload');
+    return;
+  }
+
+  const payload = data as Record<string, unknown>;
+  const action = payload.action as string;
+
+  switch (action) {
+    case 'join': {
+      // User joins presence tracking
+      presenceService.join(connection.projectId, {
+        userId: connection.userId,
+        clientId: connection.clientId,
+        displayName: connection.displayName,
+        avatarUrl: connection.avatarUrl,
+      });
+      
+      // Send current presence state to the joining client
+      const client = connectionRegistry.getClient(socketId);
+      if (client && client.socket.readyState === 1) {
+        const allUsers = presenceService.getAll(connection.projectId);
+        const allLocks = lockService.getLocksForProject(connection.projectId);
+        
+        client.socket.send(JSON.stringify({
+          type: 'presence',
+          action: 'sync',
+          data: { users: allUsers },
+        }));
+        
+        client.socket.send(JSON.stringify({
+          type: 'lock',
+          action: 'sync',
+          data: { locks: allLocks },
+        }));
+      }
+      break;
+    }
+
+    case 'leave': {
+      presenceService.leave(connection.projectId, connection.clientId, 'explicit');
+      break;
+    }
+
+    case 'update': {
+      const updates: PresenceUpdatePayload = {
+        cursorPosition: payload.cursorPosition as number | undefined,
+        playheadPosition: payload.playheadPosition as number | undefined,
+        selectedTrackId: payload.selectedTrackId as string | undefined,
+        selectedClipIds: payload.selectedClipIds as string[] | undefined,
+        activity: payload.activity as PresenceUpdatePayload['activity'],
+      };
+      
+      // Remove undefined values
+      Object.keys(updates).forEach((key) => {
+        if (updates[key as keyof PresenceUpdatePayload] === undefined) {
+          delete updates[key as keyof PresenceUpdatePayload];
+        }
+      });
+      
+      presenceService.update(connection.projectId, connection.clientId, updates);
+      break;
+    }
+
+    default:
+      sendError(socketId, 'UNKNOWN_PRESENCE_ACTION', `Unknown presence action: ${action}`);
+  }
+}
+
+/**
+ * Handles lock-related messages.
+ */
+function handleLockMessage(
+  socketId: string,
+  connection: AuthenticatedConnection,
+  data: unknown
+): void {
+  if (!connection.canEdit) {
+    sendError(socketId, 'FORBIDDEN', 'You do not have edit permission for this project');
+    return;
+  }
+
+  if (!data || typeof data !== 'object') {
+    sendError(socketId, 'INVALID_PAYLOAD', 'Invalid lock payload');
+    return;
+  }
+
+  const payload = data as Record<string, unknown>;
+  const action = payload.action as string;
+
+  switch (action) {
+    case 'acquire': {
+      const resourceType = payload.resourceType as LockResourceType;
+      const resourceId = payload.resourceId as string;
+      const reason = payload.reason as string | undefined;
+
+      if (!resourceType || !resourceId) {
+        sendError(socketId, 'INVALID_PAYLOAD', 'resourceType and resourceId are required');
+        return;
+      }
+
+      const result = lockService.acquire(connection.projectId, {
+        resourceType,
+        resourceId,
+        userId: connection.userId,
+        clientId: connection.clientId,
+        displayName: connection.displayName,
+        reason,
+      });
+
+      // Send response to requester
+      const client = connectionRegistry.getClient(socketId);
+      if (client && client.socket.readyState === 1) {
+        client.socket.send(JSON.stringify({
+          type: 'lock_response',
+          data: {
+            action: 'acquire',
+            resourceType,
+            resourceId,
+            granted: result.granted,
+            lock: result.lock,
+            error: result.error,
+            heldBy: result.heldBy,
+          },
+        }));
+      }
+      break;
+    }
+
+    case 'release': {
+      const resourceType = payload.resourceType as LockResourceType;
+      const resourceId = payload.resourceId as string;
+
+      if (!resourceType || !resourceId) {
+        sendError(socketId, 'INVALID_PAYLOAD', 'resourceType and resourceId are required');
+        return;
+      }
+
+      const released = lockService.release(
+        resourceType,
+        resourceId,
+        connection.clientId,
+        connection.projectId
+      );
+
+      // Send response to requester
+      const client = connectionRegistry.getClient(socketId);
+      if (client && client.socket.readyState === 1) {
+        client.socket.send(JSON.stringify({
+          type: 'lock_response',
+          data: {
+            action: 'release',
+            resourceType,
+            resourceId,
+            success: released,
+          },
+        }));
+      }
+      break;
+    }
+
+    case 'heartbeat': {
+      const resourceType = payload.resourceType as LockResourceType;
+      const resourceId = payload.resourceId as string;
+
+      if (!resourceType || !resourceId) {
+        sendError(socketId, 'INVALID_PAYLOAD', 'resourceType and resourceId are required');
+        return;
+      }
+
+      const renewed = lockService.heartbeat(resourceType, resourceId, connection.clientId);
+
+      if (!renewed) {
+        // Lock expired or not found
+        const client = connectionRegistry.getClient(socketId);
+        if (client && client.socket.readyState === 1) {
+          client.socket.send(JSON.stringify({
+            type: 'lock_response',
+            data: {
+              action: 'heartbeat',
+              resourceType,
+              resourceId,
+              success: false,
+              error: 'Lock not found or expired',
+            },
+          }));
+        }
+      }
+      break;
+    }
+
+    default:
+      sendError(socketId, 'UNKNOWN_LOCK_ACTION', `Unknown lock action: ${action}`);
+  }
+}
+
+/**
+ * Handles sync request messages.
+ */
+function handleSyncMessage(
+  socketId: string,
+  connection: AuthenticatedConnection
+): void {
+  const client = connectionRegistry.getClient(socketId);
+  if (!client || client.socket.readyState !== 1) return;
+
+  // Send current presence state
+  const allUsers = presenceService.getAll(connection.projectId);
+  client.socket.send(JSON.stringify({
+    type: 'presence',
+    action: 'sync',
+    data: { users: allUsers },
+  }));
+
+  // Send current lock state
+  const allLocks = lockService.getLocksForProject(connection.projectId);
+  client.socket.send(JSON.stringify({
+    type: 'lock',
+    action: 'sync',
+    data: { locks: allLocks },
+  }));
 }
 
 // ============================================================================
@@ -328,6 +582,14 @@ export async function collaborateRoutes(fastify: FastifyInstance): Promise<void>
       // Handle connection close
       socket.on('close', (code: number, reason: Buffer) => {
         console.log(`[CollaborateRoute] Connection closed: ${socketId} (code: ${code})`);
+        
+        // Clean up presence
+        presenceService.leave(connection.projectId, connection.clientId, 'disconnect');
+        
+        // Clean up locks held by this client
+        lockService.releaseAllForClient(connection.clientId, 'disconnect');
+        
+        // Unregister from connection registry
         connectionRegistry.unregisterClient(socketId);
 
         // TODO: PostHog.capture('daw_realtime_disconnected', {
@@ -342,11 +604,15 @@ export async function collaborateRoutes(fastify: FastifyInstance): Promise<void>
       socket.on('error', (error: Error) => {
         console.error(`[CollaborateRoute] Socket error for ${socketId}:`, error);
         
-        // TODO: Sentry.captureException(error, {
-        //   tags: { component: 'websocket' },
-        //   extra: { socketId, projectId: connection.projectId },
-        // });
+        Sentry.captureException(error, {
+          tags: { component: 'websocket' },
+          extra: { socketId, projectId: connection.projectId },
+        });
 
+        // Clean up presence and locks on error
+        presenceService.leave(connection.projectId, connection.clientId, 'disconnect');
+        lockService.releaseAllForClient(connection.clientId, 'disconnect');
+        
         connectionRegistry.unregisterClient(socketId);
       });
     }

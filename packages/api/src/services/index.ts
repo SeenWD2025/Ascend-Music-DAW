@@ -4,3 +4,4 @@
  */
 
 export * from './daw/index.js';
+export * from './r2/index.js';

@@ -259,19 +259,19 @@ export async function projectRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook('preHandler', authMiddleware);
 
   // List projects
-  fastify.get('/', listProjectsHandler);
+  fastify.get('/', { handler: listProjectsHandler as any });
 
   // Get single project
-  fastify.get('/:id', getProjectHandler);
+  fastify.get('/:id', { handler: getProjectHandler as any });
 
   // Create project
-  fastify.post('/', createProjectHandler);
+  fastify.post('/', { handler: createProjectHandler as any });
 
   // Update project
-  fastify.put('/:id', updateProjectHandler);
+  fastify.put('/:id', { handler: updateProjectHandler as any });
 
   // Delete project
-  fastify.delete('/:id', deleteProjectHandler);
+  fastify.delete('/:id', { handler: deleteProjectHandler as any });
 }
 
 export default projectRoutes;

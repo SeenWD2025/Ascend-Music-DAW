@@ -4,6 +4,8 @@
  */
 
 import { z } from 'zod';
+import { TrackTypeSchema } from './track.schema.js';
+import { ClipTypeSchema } from './clip.schema.js';
 
 // ============================================================================
 // Event Envelope Schema
@@ -83,7 +85,7 @@ export const TransportSeekPayloadSchema = z.object({
 // Track Event Payloads
 // ============================================================================
 
-export const TrackTypeSchema = z.enum(['audio', 'midi', 'bus', 'master']);
+// TrackTypeSchema imported from track.schema.ts
 
 export const TrackAddPayloadSchema = z.object({
   track_id: z.string().uuid(),
@@ -124,7 +126,7 @@ export const TrackReorderPayloadSchema = z.object({
 // Clip Event Payloads
 // ============================================================================
 
-export const ClipTypeSchema = z.enum(['audio', 'midi']);
+// ClipTypeSchema imported from clip.schema.ts
 
 export const ClipAddPayloadSchema = z.object({
   clip_id: z.string().uuid(),
@@ -172,6 +174,164 @@ export const ProjectUpdatePayloadSchema = z.object({
 });
 
 // ============================================================================
+// Plugin Event Payloads
+// ============================================================================
+
+/**
+ * Payload for adding a new plugin to a track.
+ */
+export const PluginAddPayloadSchema = z.object({
+  /** Plugin instance ID (UUID) */
+  plugin_id: z.string().uuid(),
+  
+  /** Track this plugin belongs to */
+  track_id: z.string().uuid(),
+  
+  /** WAM plugin identifier */
+  wam_id: z.string().min(1).max(255),
+  
+  /** WAM plugin version */
+  wam_version: z.string().regex(/^\d+\.\d+\.\d+$/),
+  
+  /** Position in the plugin chain (0-based) */
+  position: z.number().int().min(0),
+  
+  /** Initial plugin state/preset data */
+  state: z.record(z.unknown()).optional(),
+  
+  /** Plugin display name */
+  name: z.string().min(1).max(255).optional(),
+  
+  /** Whether plugin is bypassed */
+  bypass: z.boolean().default(false),
+});
+
+export type PluginAddPayload = z.infer<typeof PluginAddPayloadSchema>;
+
+/**
+ * Payload for updating plugin properties (state, bypass).
+ */
+export const PluginUpdatePayloadSchema = z.object({
+  /** Plugin instance ID */
+  plugin_id: z.string().uuid(),
+  
+  /** Changed properties */
+  changes: z.object({
+    /** Full plugin state update */
+    state: z.record(z.unknown()).optional(),
+    /** Bypass state */
+    bypass: z.boolean().optional(),
+    /** Plugin display name */
+    name: z.string().min(1).max(255).optional(),
+  }),
+});
+
+export type PluginUpdatePayload = z.infer<typeof PluginUpdatePayloadSchema>;
+
+/**
+ * Payload for individual parameter changes (high-frequency, throttled).
+ */
+export const PluginParamChangePayloadSchema = z.object({
+  /** Plugin instance ID */
+  plugin_id: z.string().uuid(),
+  
+  /** Parameter identifier (WAM param ID) */
+  param_id: z.string().min(1).max(255),
+  
+  /** New parameter value (normalized 0-1 or actual value) */
+  value: z.number(),
+  
+  /** Optional batch ID for coalescing multiple param changes */
+  batch_id: z.string().uuid().optional(),
+  
+  /** Timestamp for ordering (ISO 8601) */
+  timestamp: z.string().datetime().optional(),
+});
+
+export type PluginParamChangePayload = z.infer<typeof PluginParamChangePayloadSchema>;
+
+/**
+ * Payload for batched parameter changes (coalesced from rapid changes).
+ */
+export const PluginParamBatchPayloadSchema = z.object({
+  /** Plugin instance ID */
+  plugin_id: z.string().uuid(),
+  
+  /** Batch ID for idempotency and ordering */
+  batch_id: z.string().uuid(),
+  
+  /** Map of param_id -> value for all changed parameters */
+  params: z.record(z.string(), z.number()),
+  
+  /** Timestamp of the latest change in the batch */
+  timestamp: z.string().datetime(),
+});
+
+export type PluginParamBatchPayload = z.infer<typeof PluginParamBatchPayloadSchema>;
+
+/**
+ * Payload for deleting a plugin from a track.
+ */
+export const PluginDeletePayloadSchema = z.object({
+  /** Plugin instance ID to delete */
+  plugin_id: z.string().uuid(),
+  
+  /** Track ID for validation */
+  track_id: z.string().uuid().optional(),
+});
+
+export type PluginDeletePayload = z.infer<typeof PluginDeletePayloadSchema>;
+
+/**
+ * Payload for reordering plugins in a track's plugin chain.
+ */
+export const PluginReorderPayloadSchema = z.object({
+  /** Track ID whose plugins are being reordered */
+  track_id: z.string().uuid(),
+  
+  /** Ordered array of plugin instance IDs */
+  plugin_order: z.array(z.string().uuid()),
+});
+
+export type PluginReorderPayload = z.infer<typeof PluginReorderPayloadSchema>;
+
+// ============================================================================
+// Event Type Enum
+// ============================================================================
+
+/**
+ * All supported DAW event types.
+ */
+export const DAWEventTypeSchema = z.enum([
+  // Transport events
+  'transport.play',
+  'transport.pause',
+  'transport.stop',
+  'transport.seek',
+  // Track events
+  'track.add',
+  'track.update',
+  'track.delete',
+  'track.reorder',
+  // Clip events
+  'clip.add',
+  'clip.update',
+  'clip.delete',
+  'clip.move',
+  // Project events
+  'project.update',
+  // Plugin events
+  'plugin.add',
+  'plugin.update',
+  'plugin.param_change',
+  'plugin.param_batch',
+  'plugin.delete',
+  'plugin.reorder',
+]);
+
+export type DAWEventType = z.infer<typeof DAWEventTypeSchema>;
+
+// ============================================================================
 // Event Type to Payload Mapping
 // ============================================================================
 
@@ -189,6 +349,12 @@ export const EventPayloadSchemas: Record<string, z.ZodSchema> = {
   'clip.delete': ClipDeletePayloadSchema,
   'clip.move': ClipMovePayloadSchema,
   'project.update': ProjectUpdatePayloadSchema,
+  'plugin.add': PluginAddPayloadSchema,
+  'plugin.update': PluginUpdatePayloadSchema,
+  'plugin.param_change': PluginParamChangePayloadSchema,
+  'plugin.param_batch': PluginParamBatchPayloadSchema,
+  'plugin.delete': PluginDeletePayloadSchema,
+  'plugin.reorder': PluginReorderPayloadSchema,
 };
 
 /**
@@ -230,6 +396,9 @@ export const WebSocketMessageTypeSchema = z.enum([
   'sync',       // State sync request/response
   'ping',       // Keep-alive ping
   'pong',       // Keep-alive pong
+  'presence',   // Presence updates (join/leave/update)
+  'lock',       // Lock operations (acquire/release/heartbeat)
+  'lock_response', // Lock operation response
 ]);
 
 export type WebSocketMessageType = z.infer<typeof WebSocketMessageTypeSchema>;
