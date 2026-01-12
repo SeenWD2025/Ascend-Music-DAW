@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^npx vitest run --reporter=verbose rls/daw_projects\\.rls\\.test\\.ts rls/daw_tracks\\.rls\\.test\\.ts rls/daw_clips\\.rls\\.test\\.ts 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

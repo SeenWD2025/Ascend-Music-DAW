@@ -1,0 +1,23 @@
+{
+  "name": "ascend-music-daw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ascend Music Group DAW - Browser-based collaborative digital audio workstation",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=@amg/api",
+    "dev:daw": "npm run dev --workspace=@ascend/daw",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspace=tests",
+    "test:rls": "cd tests && npm run test:rls",
+    "test:integration": "cd tests && npm run test:integration",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "npm@10.0.0"
+}

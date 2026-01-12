@@ -22,3 +22,13 @@ export {
   setupGlitchDetection,
   type LatencyMetrics,
 } from './latency';
+
+// Waveform utilities
+export {
+  decodeAudioBuffer,
+  extractWaveformData,
+  drawWaveform,
+  drawWaveformFromBuffer,
+  calculateSamplesPerPixel,
+  type WaveformData,
+} from './waveform';

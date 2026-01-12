@@ -5,3 +5,12 @@ export {
   type Track,
   type AudioClip,
 } from './project.store';
+export {
+  useCollaborationStore,
+  type CollaborationState,
+} from './collaboration.store';
+export {
+  usePluginStore,
+  type PluginState,
+  type TrackPluginSlot,
+} from './plugin.store';

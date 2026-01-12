@@ -2,8 +2,8 @@
 path: tests
 owner: A07 (QA/Security Specialist)
 status: active
-summary: Automated tests for AMG Music Platform - unit, integration, and RLS policy tests. Includes DAW project RLS and API integration tests.
-last_updated: 2026-01-15
+summary: Automated tests for AMG Music Platform - unit, integration, and RLS policy tests. Includes DAW project, plugin, and export RLS and API integration tests.
+last_updated: 2026-01-25
 key_artifacts:
   - setup.ts (test environment setup with Supabase clients)
   - vitest.config.ts (Vitest test runner configuration)
@@ -55,7 +55,12 @@ tests/
 │   ├── service_provider_profiles.rls.test.ts # pro profiles policies
 │   ├── service_seeker_profiles.rls.test.ts   # client profiles policies
 │   ├── drive_connections.rls.test.ts         # drive_connections policies (Sprint 02)
-│   └── drive_files.rls.test.ts               # drive_files policies (Sprint 02)
+│   ├── drive_files.rls.test.ts               # drive_files policies (Sprint 02)
+│   ├── daw_projects.rls.test.ts              # daw_projects policies (DAW Sprint)
+│   ├── daw_tracks.rls.test.ts                # daw_tracks policies (DAW Sprint)
+│   ├── daw_clips.rls.test.ts                 # daw_clips policies (DAW Sprint)
+│   ├── daw_plugins.rls.test.ts               # daw_plugins policies (DAW Sprint 2)
+│   └── daw_exports.rls.test.ts               # daw_exports policies (DAW Sprint 2)
 │
 ├── integration/             # API Integration Tests
 │   ├── auth.test.ts         # GET /auth/me, POST /auth/logout
@@ -63,13 +68,20 @@ tests/
 │   ├── pros.test.ts         # POST/GET/PUT /pros
 │   ├── clients.test.ts      # POST/GET/PUT /clients
 │   ├── admin.test.ts        # POST /admin/seed
-│   └── drive.test.ts        # Drive API endpoints (Sprint 02)
+│   ├── drive.test.ts        # Drive API endpoints (Sprint 02)
+│   ├── daw.test.ts          # DAW projects API (DAW Sprint)
+│   ├── daw-tracks.test.ts   # DAW tracks API (DAW Sprint)
+│   ├── daw-clips.test.ts    # DAW clips API (DAW Sprint)
+│   ├── daw-plugins.test.ts  # DAW plugins API (DAW Sprint 2)
+│   └── daw-exports.test.ts  # DAW exports API (DAW Sprint 2)
 │
 └── unit/                    # Unit Tests
     ├── profile.service.test.ts   # ProfileService unit tests
     ├── auth.middleware.test.ts   # Auth middleware unit tests
     ├── drive.service.test.ts     # DriveService unit tests (Sprint 02)
-    └── token-manager.test.ts     # Token manager unit tests (Sprint 02)
+    ├── token-manager.test.ts     # Token manager unit tests (Sprint 02)
+    ├── plugin-sync.test.ts       # Plugin sync service (DAW Sprint 2)
+    └── plugin-lock.test.ts       # Plugin lock service (DAW Sprint 2)
 ```
 
 ## Coverage Targets
@@ -125,3 +137,45 @@ Tests require these environment variables (in `.env.test` or `.env`):
 - ✅ API: admin endpoints (8 tests)
 - ✅ Unit: profile service (10 tests)
 - ✅ Unit: auth middleware (12 tests)
+
+## DAW Sprint 2 Test Coverage
+
+### Plugin & Export Tests Created:
+- ✅ RLS: daw_plugins table (20+ tests)
+  - Owner can SELECT/INSERT/UPDATE/DELETE plugins
+  - Collaborator with edit permission can CRUD plugins
+  - Viewer can only SELECT plugins
+  - Non-member cannot access plugins
+  - Anonymous cannot access plugins
+  - Admin has full access
+- ✅ RLS: daw_exports table (18+ tests)
+  - Export owner can SELECT/DELETE their exports
+  - Project member can INSERT exports (owner_id must match)
+  - Non-member cannot access exports
+  - UPDATE restricted to service role only
+  - Anonymous cannot access exports
+  - Admin has full access
+- ✅ API: plugins endpoints (25+ tests)
+  - POST/GET/PUT/DELETE plugin endpoints
+  - PATCH reorder endpoint
+  - 401/403/404 error handling
+  - wam_id and wam_version validation
+- ✅ API: exports endpoints (22+ tests)
+  - POST export (enqueue)
+  - GET exports list and status
+  - DELETE export (cancel)
+  - Idempotency key handling
+  - Concurrency limit (429 when > 3 active)
+  - Format validation (wav/mp3/flac)
+- ✅ Unit: plugin-sync service (12+ tests)
+  - Throttle limits to 30Hz
+  - Coalesce changes within 33ms window
+  - Rate limit > 30 events/second
+  - batch_id grouping
+- ✅ Unit: plugin-lock service (15+ tests)
+  - Acquire lock succeeds for first user
+  - Acquire lock fails with lock holder info
+  - Release lock allows new acquisition
+  - Refresh lock extends timeout
+  - Expired lock auto-releases after 15s
+  - Disconnect triggers lock cleanup

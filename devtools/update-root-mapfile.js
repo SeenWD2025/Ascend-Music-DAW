@@ -1,8 +1,12 @@
 // Generates root-mapfile.md by aggregating all mapfile.md files in the repo.
 // Usage: node devtools/update-root-mapfile.js
 
-const fs = require('fs/promises');
-const path = require('path');
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const ROOT = path.resolve(__dirname, '..');
 const TARGET = path.join(ROOT, 'root-mapfile.md');

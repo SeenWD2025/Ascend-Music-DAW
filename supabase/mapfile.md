@@ -2,14 +2,16 @@
 path: supabase
 owner: A02 (Supabase/RLS Specialist)
 status: active
-summary: Supabase configuration, migrations, and RLS policies for AMG Music Platform. Contains auth/profile foundation, Google Drive integration, and DAW foundation schema with collaborative project access control.
-last_updated: 2026-01-15
+summary: Supabase configuration, migrations, and RLS policies for AMG Music Platform. Contains auth/profile foundation, Google Drive integration, DAW foundation schema with collaborative project access control, and Sprint 2 plugin/export enhancements.
+last_updated: 2026-01-25
 key_artifacts:
   - config.toml: Supabase CLI configuration with auth, storage, and API settings
   - migrations/20260110000001_auth_profiles_roles.sql: Core profile tables (profiles, service_provider_profiles, service_seeker_profiles) with RLS policies
   - migrations/20260110000002_seed_admin.sql: Admin user seeding and promote_to_admin helper function
   - migrations/20260111000001_drive_connections_files.sql: Google Drive OAuth connections and file metadata with private-by-default RLS
   - migrations/20260115000001_daw_foundation.sql: DAW project schema (daw_projects, daw_tracks, daw_clips, daw_plugins, daw_collaborators, daw_exports) with owner/collaborator RLS
+  - migrations/20260118000001_daw_cascade_updated_at.sql: Cascade triggers for updated_at propagation (track->project, clip->project, plugin->project)
+  - migrations/20260125000001_daw_plugins_export.sql: Sprint 2 - Plugin versioning (wam_version), export idempotency, R2 tracking, and plugin->track cascade
 processes:
   - Use Supabase CLI migrations; never apply ad-hoc SQL in prod
   - Run `supabase db push` for local development
@@ -41,9 +43,12 @@ supabase/
 ├── config.toml                    # Supabase CLI configuration
 ├── mapfile.md                     # This file
 └── migrations/
-    ├── 20260110000001_auth_profiles_roles.sql   # Core profile schema + RLS
-    ├── 20260110000002_seed_admin.sql            # Admin seeding
-    └── 20260111000001_drive_connections_files.sql # Drive OAuth + file metadata
+    ├── 20260110000001_auth_profiles_roles.sql       # Core profile schema + RLS
+    ├── 20260110000002_seed_admin.sql                # Admin seeding
+    ├── 20260111000001_drive_connections_files.sql   # Drive OAuth + file metadata
+    ├── 20260115000001_daw_foundation.sql            # DAW core tables + RLS
+    ├── 20260118000001_daw_cascade_updated_at.sql    # Cascade triggers
+    └── 20260125000001_daw_plugins_export.sql        # Sprint 2 plugin/export enhancements
 ```
 
 ## Tables Created
@@ -55,6 +60,12 @@ supabase/
 | `service_seeker_profiles` | Extended profile for Clients | Owner/admin read, owner write |
 | `drive_connections` | Google Drive OAuth tokens per user | Owner read/delete, no client insert/update |
 | `drive_files` | File metadata (not content) | Owner CRUD, shared_with read, admin read |
+| `daw_projects` | DAW projects with settings (BPM, sample rate) | Owner all, collaborator read/edit, admin all |
+| `daw_tracks` | Audio/MIDI/bus/master tracks | Member read, editor insert/update/delete |
+| `daw_clips` | Audio/MIDI clips on tracks | Member read, editor insert/update/delete |
+| `daw_plugins` | WAM plugin instances on tracks (with wam_version) | Member read, editor insert/update/delete |
+| `daw_collaborators` | Project collaboration with role-based access | Owner manage, self read/update, admin all |
+| `daw_exports` | Export jobs with idempotency and R2 tracking | Owner select/delete, member insert, service_role update |
 
 ## Views
 
@@ -71,6 +82,11 @@ supabase/
 | `promote_to_admin(email)` | Securely promotes a user to admin role (superuser only) |
 | `has_active_drive_connection(user_id)` | Check if user has active (non-revoked, non-expired) Drive connection |
 | `can_access_drive_file(user_id, file_id)` | Check if user can access a specific file based on ownership/sharing/privacy |
+| `is_daw_project_owner(project_uuid)` | Check if current user owns the DAW project |
+| `is_daw_project_member(project_uuid)` | Check if current user is owner or active collaborator |
+| `can_edit_daw_project(project_uuid)` | Check if current user can edit (owner or editor/admin collaborator) |
+| `is_daw_export_owner(export_uuid)` | Check if current user owns the export |
+| `cascade_plugin_to_track_updated_at()` | Trigger to cascade plugin changes to parent track's updated_at |
 
 ## RLS Policy Summary
 
